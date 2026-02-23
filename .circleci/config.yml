@@ -1,0 +1,57 @@
+version: 2.1
+
+x-defaults: &defaults
+  machine:
+    image: ubuntu-2404:2025.09.1
+  resource_class: medium
+  environment:
+    AWS_DEFAULT_REGION: "us-east-1"
+    ECR_REGISTRY: "548444480670.dkr.ecr.us-east-1.amazonaws.com"
+    DOCKER_BUILDKIT: 1
+    BUILDKIT_PROGRESS: plain
+
+x-docker-defaults: &docker-defaults
+  docker:
+    - image: cimg/aws:2025.01
+  resource_class: small
+  environment:
+    GIT_LFS_SKIP_SMUDGE: 1
+    ECR_REGISTRY: 548444480670.dkr.ecr.us-east-1.amazonaws.com
+
+commands:
+  setup-docker-build:
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Add GitHub to known hosts
+          command: |
+            mkdir -p ~/.ssh
+            ssh-keyscan github.com >> ~/.ssh/known_hosts
+      - setup_remote_docker
+      - run:
+          name: Login to ECR
+          command: |
+            aws ecr --region us-east-1 get-login-password | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+jobs:
+  build-varnish-image:
+    <<: *docker-defaults
+    steps:
+      - checkout
+      - setup-docker-build
+      - run:
+          name: Build and push varnish image
+          command: |
+            cd 7.7
+            docker build \
+              -t "$ECR_REGISTRY/varnish/base:7.7" \
+              ./varnish
+            docker push "$ECR_REGISTRY/varnish/base:7.7"
+
+workflows:
+  version: 2
+  test-and-deploy:
+    jobs:
+      - build-varnish-image:
+          context: Jacobin AWS
